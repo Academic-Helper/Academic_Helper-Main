@@ -1,0 +1,262 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a user is an admin
+    function isAdmin() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Helper function to check if a user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if the user is the owner of a document
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Helper function to check if a user is a participant (seeker or writer) in a specific assignment.
+    function isParticipantInAssignment(assignmentId) {
+        let assignment = get(/databases/$(database)/documents/assignments/$(assignmentId)).data;
+        return request.auth.uid == assignment.seekerId || request.auth.uid == assignment.writerId;
+    }
+
+    // Helper function to allow a user to update their own profile and presence status.
+    function isUpdatingOwnProfile() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['isOnline', 'lastSeen', 'notifiedForOfflineMessage', 'fcmTokens', 'photoURL', 'name', 'phone', 'whatsApp', 'educationLevel', 'interestedAreas', 'aboutMe', 'bankDetails', 'subjects', 'grades', 'locations', 'banners']);
+    }
+
+    // Helper function to allow a seeker to pay a writer when marking an assignment as complete.
+    function isPayingWriterForCompletion(userId) {
+      let isWriter = get(/databases/$(database)/documents/users/$(userId)).data.role == 'writer';
+      let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+      
+      // Ensure only walletBalance is being changed and it's an increase.
+      let isUpdatingWallet = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['walletBalance']);
+      let isIncrementingWallet = request.resource.data.walletBalance > resource.data.walletBalance;
+
+      return isWriter && isSeeker && isUpdatingWallet && isIncrementingWallet;
+    }
+    
+     // Helper function to allow the system (via a transaction initiated by a seeker) to record profit.
+    function isRecordingProfit() {
+        let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+        let isUpdatingProfit = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalProfit']);
+        let isIncrementingProfit = request.resource.data.totalProfit > resource.data.totalProfit;
+        return isAuthenticated() && isSeeker && isUpdatingProfit && isIncrementingProfit;
+    }
+
+
+    // Helper function to allow a seeker to submit a review for a writer.
+    function isReviewingWriter(userId) {
+      let isWriter = get(/databases/$(database)/documents/users/$(userId)).data.role == 'writer';
+      let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+      
+      // Allow updates only to 'averageRating' and 'ratingCount' fields.
+      let isUpdatingRatingFields = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['averageRating', 'ratingCount']);
+
+      return isWriter && isSeeker && isUpdatingRatingFields;
+    }
+
+    // Helper function to validate the assignment completion transaction.
+    function isCompletingAssignment(assignment) {
+      return isAuthenticated() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker' &&
+             assignment.seekerId == request.auth.uid &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidOut', 'stages']);
+    }
+
+    // Helper function to validate the review submission after an assignment is completed.
+    function isSubmittingReview(assignment) {
+        return isAuthenticated() &&
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker' &&
+               assignment.seekerId == request.auth.uid &&
+               request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'review', 'reviewSubmitted', 'adminFeedbackSubmitted']);
+    }
+    
+    // Helper function for a writer placing or updating a bid.
+    function isPlacingOrUpdatingBid() {
+        let isWriter = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'writer';
+        let isBiddingStatus = resource.data.status == 'bidding';
+        let incomingData = request.resource.data;
+        let existingData = resource.data;
+        
+        return isAuthenticated() &&
+               isWriter &&
+               isBiddingStatus &&
+               incomingData.diff(existingData).affectedKeys().hasOnly(['bids', 'withdrawnBids']) &&
+               (
+                 // Allow adding/updating their own bid
+                 (incomingData.bids.diff(existingData.bids).affectedKeys().hasOnly([request.auth.uid]) &&
+                   (
+                     (!existingData.bids.keys().hasAny([request.auth.uid])) || 
+                     (incomingData.bids[request.auth.uid].editCount == existingData.bids[request.auth.uid].editCount + 1 &&
+                      existingData.bids[request.auth.uid].editCount <= 2)
+                   )
+                 ) ||
+                 // Allow withdrawing a bid by removing their key
+                 (existingData.bids.diff(incomingData.bids).affectedKeys().hasOnly([request.auth.uid]))
+               );
+    }
+    
+    // Helper function for seeker to select a bid winner
+    function isSelectingBidWinner() {
+        let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+        let isOwnAssignment = resource.data.seekerId == request.auth.uid;
+        let wasBidding = resource.data.status == 'bidding' || resource.data.status == 'open' || resource.data.status == 'claimed';
+        let isNowClaimed = request.resource.data.status == 'claimed';
+        let allowedFields = ['status', 'writerId', 'writerName', 'proposedFee', 'feeAgreed', 'biddingDeadline'];
+
+        return isAuthenticated() && isSeeker && isOwnAssignment && wasBidding && isNowClaimed &&
+               request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields);
+    }
+    
+     // Helper function for seeker to stop bidding process
+    function isStoppingBidding() {
+      let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+      let isOwnAssignment = resource.data.seekerId == request.auth.uid;
+      let wasBidding = resource.data.status == 'bidding';
+
+      return isAuthenticated() && isSeeker && isOwnAssignment && wasBidding &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'biddingDeadline']);
+    }
+
+    // Helper function to allow a writer to claim an open assignment.
+    function isCatchingAssignment() {
+      let isWriter = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'writer';
+      let wasOpen = resource.data.status == 'open';
+      let isNowClaimed = request.resource.data.status == 'claimed';
+      // Ensure only the status, writerId, and writerName fields are being added/changed.
+      let allowedFields = ['status', 'writerId', 'writerName'];
+      
+      return isAuthenticated() && isWriter && wasOpen && isNowClaimed &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields) &&
+             request.resource.data.writerId == request.auth.uid;
+    }
+    
+    // Helper function to allow a seeker to accept and pay a fee.
+    function isAcceptingFee() {
+        let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+        let isOwnAssignment = resource.data.seekerId == request.auth.uid;
+        let isConfirmingPayment = request.resource.data.paymentConfirmed == true;
+        let allowedFields = ['status', 'paymentConfirmed', 'fee', 'feeAgreed', 'proposedFee', 'stages'];
+        
+        return isAuthenticated() && isSeeker && isOwnAssignment && isConfirmingPayment &&
+               request.resource.data.diff(resource.data).affectedKeys().hasAny(allowedFields);
+    }
+    
+    // Users collection rules
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+
+      allow write: if isAdmin() ||
+                      (isAuthenticated() && isOwner(userId)) || // isUpdatingOwnProfile is checked client-side. Allowing broader write for wallet tx.
+                      isPayingWriterForCompletion(userId) ||
+                      isReviewingWriter(userId);
+      
+      allow list: if isAdmin() || isAuthenticated();
+    }
+
+    // Assignments collection rules
+    match /assignments/{assignmentId} {
+      allow read: if isAdmin() || isParticipantInAssignment(assignmentId) ||
+                     (isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'writer' && (resource.data.status == 'open' || resource.data.status == 'bidding')) ||
+                     (isAuthenticated() && resource.data.status == 'completed');
+
+      allow create: if isAuthenticated() && request.resource.data.seekerId == request.auth.uid && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+
+      allow update: if isAdmin() ||
+                       isSelectingBidWinner() ||
+                       isStoppingBidding() ||
+                       isCompletingAssignment(resource.data) ||
+                       isSubmittingReview(resource.data) ||
+                       isPlacingOrUpdatingBid() ||
+                       isCatchingAssignment() ||
+                       isAcceptingFee() ||
+                       (isAuthenticated() && isParticipantInAssignment(assignmentId));
+
+      allow delete: if isAdmin() ||
+                       (isAuthenticated() && resource.data.seekerId == request.auth.uid && (resource.data.status == 'open' || resource.data.status == 'bidding'));
+      
+      allow list: if isAdmin() || isAuthenticated();
+
+      match /messages/{messageId} {
+        allow read, write, delete: if isAdmin() || isParticipantInAssignment(assignmentId);
+      }
+    }
+    
+    // Finances collection rules
+    match /finances/summary {
+      allow read, write: if isAdmin() || isRecordingProfit();
+      
+      match /transactions/{transactionId} {
+        allow read, list, create: if isAdmin() || isRecordingProfit();
+        allow delete: if isAdmin();
+      }
+    }
+    
+    match /locations/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Support chats
+    match /supportChats/{userId} {
+      allow read, create, list, update, delete: if isAdmin() || isOwner(userId);
+
+      match /messages/{messageId} {
+        allow read, write, create: if isAdmin() || isOwner(userId);
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow list: if isAdmin() || (isAuthenticated() && request.query.where[1][2] == request.auth.uid);
+    }
+
+    match /public_settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /depositRequests/{requestId} {
+      allow read, list, update, delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+    }
+
+    match /withdrawalRequests/{requestId} {
+      allow read, list, update, delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+    }
+    
+    match /feedback/{feedbackId} {
+      allow create: if isAuthenticated();
+      allow read, list, update, delete: if isAdmin();
+    }
+    
+    match /promotions/{promoId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /policyUpdates/{policyId} {
+      allow read: if isAuthenticated();
+      allow write, create, update, delete: if isAdmin();
+    }
+    
+    match /cancellationReports/{reportId} {
+      allow create: if isAuthenticated();
+      allow read, list, update, delete: if isAdmin();
+    }
+  }
+}
+
+    

@@ -1,0 +1,67 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Profile photos:
+    // - Any authenticated user can upload a file to their own folder.
+    // - File must be an image and under 5MB.
+    // - Any user can read profile photos.
+    match /profile-photos/{userId}/{fileName} {
+      allow read;
+      allow write: if request.auth != null &&
+                      request.auth.uid == userId &&
+                      request.resource.size < 5 * 1024 * 1024 &&
+                      request.resource.contentType.matches('image/.*');
+    }
+
+    // Teacher Banners:
+    // - Anyone can read banners.
+    // - Only the authenticated teacher can upload/delete banners in their own folder.
+    // - Files must be images and under 5MB.
+    match /teacher-banners/{userId}/{fileName} {
+      allow read;
+      allow write: if request.auth != null &&
+                      request.auth.uid == userId &&
+                      request.resource.size < 5 * 1024 * 1024 &&
+                      request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Assignment attachments (Initial Upload by Seeker)
+    match /assignments/{userId}/{assignmentId}/{fileName} {
+       allow read: if request.auth != null;
+       allow create: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Assignment submissions (by Writer) - For single payment
+    match /submissions/{assignmentId}/{writerId}/{fileName} {
+      allow read: if request.auth != null &&
+                   (
+                     get(/databases/(default)/documents/assignments/$(assignmentId)).data.seekerId == request.auth.uid ||
+                     request.auth.uid == writerId ||
+                     get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin'
+                   );
+      allow write: if request.auth != null &&
+                    request.auth.uid == writerId &&
+                    request.resource.size < 10 * 1024 * 1024;
+      allow delete: if request.auth != null && request.auth.uid == writerId;
+    }
+
+    // Assignment submissions (by Writer) - For STAGED payments
+    // This rule allows uploads to a folder like /stage_1/, /stage_2/, etc.
+    match /submissions/{assignmentId}/{writerId}/{stageFolder}/{fileName} {
+      // The stageFolder name must start with "stage_"
+      allow read: if request.auth != null &&
+                   (
+                     get(/databases/(default)/documents/assignments/$(assignmentId)).data.seekerId == request.auth.uid ||
+                     request.auth.uid == writerId ||
+                     get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin'
+                   );
+      allow write: if request.auth != null &&
+                    request.auth.uid == writerId &&
+                    stageFolder.matches('stage_.*') && // Ensure folder name is correct
+                    request.resource.size < 10 * 1024 * 1024;
+      allow delete: if request.auth != null && request.auth.uid == writerId;
+    }
+  }
+}

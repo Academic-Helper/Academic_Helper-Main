@@ -1,0 +1,17 @@
+
+node_modules/
+
+# Next.js build output
+.next/
+
+# Local environment files (do NOT commit secrets)
+.env
+.env.local
+
+# Firebase / Firestore / local debug logs generated in this repo
+firebase-debug.log
+firestore-debug.log
+pglite-debug.log
+
+# macOS file metadata
+.DS_Store
