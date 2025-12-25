@@ -1,7 +1,5 @@
 /** @type {import('next').NextConfig} */
-const isFirebaseQA = process.env.NEXT_PUBLIC_ENV === "qa";
 const nextConfig = {
-  ...(isFirebaseQA ? { output: "export" } : {}),
   typescript: {
     ignoreBuildErrors: true,
   },
