@@ -89,12 +89,13 @@ jobs:
       - name: Deploy prebuilt to Netlify QA (prod)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SKIP_BUILD: "true"
         run: |
           netlify --version
           netlify deploy \
             --site "${{ secrets.NETLIFY_SITE_ID_QA }}" \
             --prod \
             --dir ".netlify/dist" \
-            --build false \
             --message "QA deploy ${{ github.sha }}"
+
 
