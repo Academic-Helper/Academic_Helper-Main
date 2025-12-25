@@ -1,28 +1,67 @@
-name: Manual Deploy QA to Netlify
+name: Manual Deploy QA to Netlify (Next.js SSR)
 
 on:
   workflow_dispatch:
 
+concurrency:
+  group: qa-netlify-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID_QA }}
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Create QA env (.env.local)
+        run: |
+          cat > .env.local << 'EOF'
+          NEXT_PUBLIC_ENV=qa
+          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY_QA }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_QA }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID_QA }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET_QA }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID_QA }}
+          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID_QA }}
+          EOF
 
       - name: Install Netlify CLI
         run: npm i -g netlify-cli
 
-      - name: Trigger Netlify deploy (QA)
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      # Link site non-interactively so Netlify CLI knows where to deploy
+      - name: Link Netlify site (QA)
         run: |
-          netlify --version
+          mkdir -p .netlify
+          cat > .netlify/state.json << EOF
+          { "siteId": "${NETLIFY_SITE_ID}" }
+          EOF
+
+      - name: Netlify build (SSR)
+        run: netlify build
+
+      - name: Deploy to Netlify (QA)
+        run: |
           netlify deploy \
-            --site "${{ secrets.NETLIFY_SITE_ID_QA }}" \
+            --site "${NETLIFY_SITE_ID}" \
+            --auth "${NETLIFY_AUTH_TOKEN}" \
             --prod \
-            --build \
-            --message "QA deploy ${{ github.sha }}"
+            --dir ".netlify/dist" \
+            --functions ".netlify/functions"
+
+      - name: Cleanup env file
+        if: always()
+        run: rm -f .env.local
