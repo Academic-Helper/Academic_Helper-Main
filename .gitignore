@@ -7,6 +7,7 @@ node_modules/
 # Local environment files (do NOT commit secrets)
 .env
 .env.local
+.env.qa
 
 # Firebase / Firestore / local debug logs generated in this repo
 firebase-debug.log

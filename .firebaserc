@@ -1,0 +1,9 @@
+{
+  "projects": {
+    "default": "academialink-app",
+    "prod": "academialink-app",
+    "qa": "academic-helper-qa"
+  },
+  "targets": {},
+  "etags": {}
+}

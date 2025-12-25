@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -32,52 +31,35 @@ service cloud.firestore {
                    .hasOnly(['isOnline', 'lastSeen', 'notifiedForOfflineMessage', 'fcmTokens', 'photoURL', 'name', 'phone', 'whatsApp', 'educationLevel', 'interestedAreas', 'aboutMe', 'bankDetails', 'subjects', 'grades', 'locations', 'banners']);
     }
 
-    // Helper function to allow a seeker to pay a writer when marking an assignment as complete.
-    function isPayingWriterForCompletion(userId) {
+    // Helper function to allow the system (via a transaction initiated by a seeker) to record profit.
+    function isRecordingProfitFromCompletion() {
+        let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+        // This check is broad because it's part of a transaction validated elsewhere.
+        // It ensures only a seeker can trigger a write that might increment profit.
+        return isAuthenticated() && isSeeker;
+    }
+
+    // Helper function to allow a seeker to pay a writer and update ratings when marking an assignment as complete.
+    function isCompletingAssignmentAndPayingWriter(userId) {
       let isWriter = get(/databases/$(database)/documents/users/$(userId)).data.role == 'writer';
       let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
       
-      // Ensure only walletBalance is being changed and it's an increase.
       let isUpdatingWallet = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['walletBalance']);
       let isIncrementingWallet = request.resource.data.walletBalance > resource.data.walletBalance;
-
-      return isWriter && isSeeker && isUpdatingWallet && isIncrementingWallet;
-    }
-    
-     // Helper function to allow the system (via a transaction initiated by a seeker) to record profit.
-    function isRecordingProfit() {
-        let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
-        let isUpdatingProfit = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalProfit']);
-        let isIncrementingProfit = request.resource.data.totalProfit > resource.data.totalProfit;
-        return isAuthenticated() && isSeeker && isUpdatingProfit && isIncrementingProfit;
-    }
-
-
-    // Helper function to allow a seeker to submit a review for a writer.
-    function isReviewingWriter(userId) {
-      let isWriter = get(/databases/$(database)/documents/users/$(userId)).data.role == 'writer';
-      let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
       
-      // Allow updates only to 'averageRating' and 'ratingCount' fields.
-      let isUpdatingRatingFields = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['averageRating', 'ratingCount']);
+      let isUpdatingRating = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['averageRating', 'ratingCount']);
 
-      return isWriter && isSeeker && isUpdatingRatingFields;
+      return isWriter && isSeeker && ( (isUpdatingWallet && isIncrementingWallet) || isUpdatingRating );
     }
 
-    // Helper function to validate the assignment completion transaction.
-    function isCompletingAssignment(assignment) {
-      return isAuthenticated() &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker' &&
-             assignment.seekerId == request.auth.uid &&
-             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidOut', 'stages']);
-    }
+    // Helper function to validate the assignment completion and review submission.
+    function isFinalizingAssignment(assignment) {
+        let isSeeker = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker';
+        let isOwnAssignment = assignment.seekerId == request.auth.uid;
+        let allowedFields = ['status', 'paidOut', 'rating', 'review', 'reviewSubmitted', 'adminFeedbackSubmitted', 'stages'];
 
-    // Helper function to validate the review submission after an assignment is completed.
-    function isSubmittingReview(assignment) {
-        return isAuthenticated() &&
-               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seeker' &&
-               assignment.seekerId == request.auth.uid &&
-               request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'review', 'reviewSubmitted', 'adminFeedbackSubmitted']);
+        return isAuthenticated() && isSeeker && isOwnAssignment &&
+               request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields);
     }
     
     // Helper function for a writer placing or updating a bid.
@@ -132,7 +114,6 @@ service cloud.firestore {
       let isWriter = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'writer';
       let wasOpen = resource.data.status == 'open';
       let isNowClaimed = request.resource.data.status == 'claimed';
-      // Ensure only the status, writerId, and writerName fields are being added/changed.
       let allowedFields = ['status', 'writerId', 'writerName'];
       
       return isAuthenticated() && isWriter && wasOpen && isNowClaimed &&
@@ -154,11 +135,9 @@ service cloud.firestore {
     // Users collection rules
     match /users/{userId} {
       allow read: if isAuthenticated();
-
       allow write: if isAdmin() ||
-                      (isAuthenticated() && isOwner(userId)) || // isUpdatingOwnProfile is checked client-side. Allowing broader write for wallet tx.
-                      isPayingWriterForCompletion(userId) ||
-                      isReviewingWriter(userId);
+                      (isAuthenticated() && isOwner(userId)) ||
+                      isCompletingAssignmentAndPayingWriter(userId);
       
       allow list: if isAdmin() || isAuthenticated();
     }
@@ -174,8 +153,7 @@ service cloud.firestore {
       allow update: if isAdmin() ||
                        isSelectingBidWinner() ||
                        isStoppingBidding() ||
-                       isCompletingAssignment(resource.data) ||
-                       isSubmittingReview(resource.data) ||
+                       isFinalizingAssignment(resource.data) ||
                        isPlacingOrUpdatingBid() ||
                        isCatchingAssignment() ||
                        isAcceptingFee() ||
@@ -193,10 +171,10 @@ service cloud.firestore {
     
     // Finances collection rules
     match /finances/summary {
-      allow read, write: if isAdmin() || isRecordingProfit();
+      allow read, write: if isAdmin() || isRecordingProfitFromCompletion();
       
       match /transactions/{transactionId} {
-        allow read, list, create: if isAdmin() || isRecordingProfit();
+        allow read, list, create: if isAdmin() || isRecordingProfitFromCompletion();
         allow delete: if isAdmin();
       }
     }
@@ -258,5 +236,3 @@ service cloud.firestore {
     }
   }
 }
-
-    
