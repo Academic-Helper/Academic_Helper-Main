@@ -165,7 +165,7 @@ export default function LoginPage() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <FormField
                 control={form.control}
-                name="email"
+                name="emails"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Email</FormLabel>
