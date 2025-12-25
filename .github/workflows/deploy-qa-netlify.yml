@@ -9,9 +9,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: veloii/action-netlify-deploy@v2.2.1
+      - uses: actions/setup-node@v4
         with:
+          node-version: 20
+
+      - name: Install Netlify CLI
+        run: npm i -g netlify-cli
+
+      - name: Trigger Netlify deploy (QA)
+        env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID_QA }}
-          NETLIFY_DEPLOY_MESSAGE: "QA deploy ${{ github.sha }}"
-          NETLIFY_DEPLOY_TO_PROD: true
+        run: |
+          netlify --version
+          netlify deploy \
+            --site "${{ secrets.NETLIFY_SITE_ID_QA }}" \
+            --prod \
+            --build \
+            --message "QA deploy ${{ github.sha }}"
