@@ -24,6 +24,7 @@ jobs:
       - name: Install Netlify CLI
         run: npm i -g netlify-cli
 
+      # QA env for build-time (public) vars
       - name: Create QA env (.env.local)
         run: |
           cat > .env.local << 'EOF'
@@ -36,27 +37,32 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID_QA }}
           EOF
 
-      - name: Install Netlify CLI
-        run: npm i -g netlify-cli
-
+      # Link repo -> QA Netlify site (non-interactive)
       - name: Link Netlify site (QA)
         run: |
           mkdir -p .netlify
           cat > .netlify/state.json << EOF
-          {
-            "siteId": "${{ secrets.NETLIFY_SITE_ID_QA }}"
-          }
+          { "siteId": "${{ secrets.NETLIFY_SITE_ID_QA }}" }
           EOF
 
+      # Build with Netlify (generates .netlify/dist + functions for Next SSR)
       - name: Netlify build (QA)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-        run: netlify build
+          NPM_CONFIG_PRODUCTION: "false"
+        run: |
+          netlify --version
+          netlify build --context production
 
-      - name: Upload Netlify build artifact
+      - name: Verify prebuilt output exists
+        run: |
+          ls -la .netlify
+          ls -la .netlify/dist | head -n 100
+
+      - name: Upload prebuilt output
         uses: actions/upload-artifact@v4
         with:
-          name: netlify-build
+          name: netlify-prebuilt
           path: |
             .netlify
             netlify.toml
@@ -71,25 +77,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download Netlify build artifact
+      - name: Download prebuilt output
         uses: actions/download-artifact@v4
         with:
-          name: netlify-build
+          name: netlify-prebuilt
           path: .
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install Netlify CLI
         run: npm i -g netlify-cli
 
-      - name: Deploy to Netlify QA (prod)
+      - name: Deploy prebuilt to Netlify QA
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |
+          netlify --version
+          # Deploy ONLY the prebuilt output (prevents Netlify cloud build from running)
           netlify deploy \
             --site "${{ secrets.NETLIFY_SITE_ID_QA }}" \
             --prod \
-            --dir ".netlify/dist"
+            --dir ".netlify/dist" \
+            --prebuilt \
+            --message "QA deploy ${{ github.sha }}"
