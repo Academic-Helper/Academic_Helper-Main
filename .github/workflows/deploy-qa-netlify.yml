@@ -86,15 +86,15 @@ jobs:
       - name: Install Netlify CLI
         run: npm i -g netlify-cli
 
-      - name: Deploy prebuilt to Netlify QA
+      - name: Deploy prebuilt to Netlify QA (prod)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |
           netlify --version
-          # Deploy ONLY the prebuilt output (prevents Netlify cloud build from running)
           netlify deploy \
             --site "${{ secrets.NETLIFY_SITE_ID_QA }}" \
             --prod \
             --dir ".netlify/dist" \
-            --prebuilt \
+            --build false \
             --message "QA deploy ${{ github.sha }}"
+
