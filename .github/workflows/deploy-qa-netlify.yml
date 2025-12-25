@@ -1,101 +1,17 @@
-name: Manual Deploy QA to Netlify (SSR)
+name: Manual Deploy QA to Netlify
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build (QA)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install deps
-        run: npm ci
-
-      - name: Install Netlify CLI
-        run: npm i -g netlify-cli
-
-      # QA env for build-time (public) vars
-      - name: Create QA env (.env.local)
-        run: |
-          cat > .env.local << 'EOF'
-          NEXT_PUBLIC_ENV=qa
-          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY_QA }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_QA }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID_QA }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET_QA }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID_QA }}
-          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID_QA }}
-          EOF
-
-      # Link repo -> QA Netlify site (non-interactive)
-      - name: Link Netlify site (QA)
-        run: |
-          mkdir -p .netlify
-          cat > .netlify/state.json << EOF
-          { "siteId": "${{ secrets.NETLIFY_SITE_ID_QA }}" }
-          EOF
-
-      # Build with Netlify (generates .netlify/dist + functions for Next SSR)
-      - name: Netlify build (QA)
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NPM_CONFIG_PRODUCTION: "false"
-        run: |
-          netlify --version
-          netlify build --context production
-
-      - name: Verify prebuilt output exists
-        run: |
-          ls -la .netlify
-          ls -la .netlify/dist | head -n 100
-
-      - name: Upload prebuilt output
-        uses: actions/upload-artifact@v4
-        with:
-          name: netlify-prebuilt
-          path: |
-            .netlify
-            netlify.toml
-          if-no-files-found: error
-
   deploy:
-    name: Deploy to Netlify (QA)
     runs-on: ubuntu-latest
-    needs: build
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download prebuilt output
-        uses: actions/download-artifact@v4
+      - uses: veloii/action-netlify-deploy@v2.2.1
         with:
-          name: netlify-prebuilt
-          path: .
-
-      - name: Install Netlify CLI
-        run: npm i -g netlify-cli
-
-      - name: Deploy prebuilt to Netlify QA (prod)
-        env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SKIP_BUILD: "true"
-        run: |
-          netlify --version
-          netlify deploy \
-            --site "${{ secrets.NETLIFY_SITE_ID_QA }}" \
-            --prod \
-            --dir ".netlify/dist" \
-            --message "QA deploy ${{ github.sha }}"
-
-
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID_QA }}
+          NETLIFY_DEPLOY_MESSAGE: "QA deploy ${{ github.sha }}"
+          NETLIFY_DEPLOY_TO_PROD: true
