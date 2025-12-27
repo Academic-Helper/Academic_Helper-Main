@@ -47,7 +47,7 @@ function FindHelperComponent() {
       };
       fetchWriters();
     }
-  }, [user, userData, authLoading, router]);
+  }, [user?.uid, authLoading, router]);
   
   const filteredWriters = useMemo(() => {
     return writers.filter(writer => {

@@ -376,7 +376,7 @@ export default function AdminPage() {
         router.push("/dashboard");
       }
     }
-  }, [user, userData, authLoading, router, fetchData]);
+  }, [user?.uid, authLoading, router, fetchData]);
 
   const handleToggleMaintenanceMode = async (checked: boolean) => {
     setIsTogglingMaintenance(true);

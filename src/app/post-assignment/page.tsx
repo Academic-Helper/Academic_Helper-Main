@@ -114,7 +114,7 @@ function PostAssignmentFormComponent() {
         fetchOldAssignmentData();
       }
     }
-  }, [user, userData, authLoading, router, toast, reassignId, form]);
+  }, [user?.uid, authLoading, router, toast, reassignId, form]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!user || !userData) {

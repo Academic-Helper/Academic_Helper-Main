@@ -183,7 +183,7 @@ export default function ProjectsPage() {
         } else if (userData) {
             fetchAssignments();
         }
-    }, [user, userData, authLoading, router, fetchAssignments]);
+    }, [user?.uid, authLoading, router, fetchAssignments]);
 
     const handleCatchAssignment = async (assignment: Assignment) => {
         if (!userData) return;

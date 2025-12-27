@@ -94,7 +94,7 @@ function FindTeacherComponent() {
       };
       fetchData();
     }
-  }, [user, userData, authLoading, router]);
+  }, [user?.uid, authLoading, router]);
   
   const filteredTeachers = useMemo(() => {
     return teachers.filter(teacher => {
