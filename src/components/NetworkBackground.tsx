@@ -32,11 +32,19 @@ const NetworkBackground: React.FC = () => {
         
         const resizeCanvas = () => {
             const dpr = window.devicePixelRatio || 1;
-            canvas.width = window.innerWidth * dpr;
-            canvas.height = window.innerHeight * dpr;
-            canvas.style.width = `${window.innerWidth}px`;
-            canvas.style.height = `${window.innerHeight}px`;
-            ctx.scale(dpr, dpr);
+            const width = Math.max(1, Math.floor(window.innerWidth));
+            const height = Math.max(1, Math.floor(window.innerHeight));
+            // Set the drawing buffer size taking DPR into account
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            // Use CSS to size the canvas to the viewport in CSS pixels
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            // Prevent the canvas from overflowing horizontally
+            canvas.style.maxWidth = '100vw';
+            canvas.style.display = 'block';
+            // Reset transform and apply DPR scaling once to avoid cumulative scaling on repeated resizes
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         };
 
         resizeCanvas();
@@ -140,7 +148,7 @@ const NetworkBackground: React.FC = () => {
         };
     }, []);
 
-    return <canvas ref={canvasRef} className="absolute inset-0 -z-10 h-full w-full bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]" />;
+    return <canvas ref={canvasRef} className="absolute inset-0 -z-10 block w-screen h-screen max-w-full bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]" />;
 };
 
 export default NetworkBackground;
