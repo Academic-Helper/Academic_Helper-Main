@@ -116,7 +116,7 @@ function ProposalFormComponent() {
     } else if (!authLoading && !user) {
         router.push("/login");
     }
-  }, [id, user, userData, authLoading, router, toast, form]);
+  }, [id, user?.uid, authLoading, router, toast, form]);
 
   async function onSubmit(values: z.infer<typeof proposalWithFeeSchema>) {
     if (!user || !userData || !id) return;

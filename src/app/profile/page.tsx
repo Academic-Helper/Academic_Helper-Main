@@ -152,7 +152,7 @@ export default function ProfilePage() {
             }
         }
     }
-  }, [user, userData, authLoading, router, form, bankForm]);
+  }, [user?.uid, authLoading, router, form, bankForm]);
 
 
   async function onSubmit(values: z.infer<typeof profileFormSchema>) {

@@ -106,7 +106,7 @@ export default function PromotionsPage() {
         fetchPromoStatus();
       }
     }
-  }, [user, userData, authLoading, router, toast]);
+  }, [user?.uid, authLoading, router, toast]);
   
   const copyToClipboard = () => {
     if (userData?.ahUserId) {

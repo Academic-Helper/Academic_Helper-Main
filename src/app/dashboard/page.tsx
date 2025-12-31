@@ -135,7 +135,7 @@ export default function DashboardPage() {
       };
       fetchPublicData();
     }
-  }, [user, userData, authLoading, router, toast]);
+  }, [user?.uid, authLoading, router, toast]);
 
   const handleDepositRequest = async () => {
     const amount = parseFloat(depositAmount);
